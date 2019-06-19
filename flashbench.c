@@ -270,7 +270,38 @@ static int try_scatter_io(struct device *dev, int tries, int scatter_order,
 	}
 
 	for (j = 0; j < count; j++) {
-		fprintf(out, "%f	%f\n", j * blocksize / (1024 * 1024.0), min[j] / 1000000.0);
+		fprintf(out, "%fMB	%fms\n", j * blocksize / (1024 * 1024.0), min[j] / 1000000.0);
+	}
+
+	return 0;
+}
+
+static int try_scatter_io_write(struct device *dev, int tries, int scatter_order,
+			int scatter_span, int blocksize, FILE *out)
+{
+	int i, j;
+	const int count = 1 << scatter_order;
+	ns_t time;
+	ns_t min[count];
+	unsigned long pos;
+
+	memset(min, 0, sizeof(min));
+	for (i = 0; i < tries; i++) {
+		pos = 0;
+		for (j = 0; j < count; j++) {
+			time = time_write(dev, (pos * blocksize), scatter_span * blocksize, WBUF_RAND);
+			returnif (time);
+
+			if (i == 0 || time < min[pos])
+				min[pos] = time;
+
+			//pos = lfsr(pos, scatter_order);
+			pos++;
+		}
+	}
+
+	for (j = 0; j < count; j++) {
+		fprintf(out, "%fMB	%fms\n", j * blocksize / (1024 * 1024.0), min[j] / 1000000.0);
 	}
 
 	return 0;
@@ -588,6 +619,7 @@ static void print_help(const char *name)
 	printf("run tests on DEVICE, pointing to a flash storage medium.\n\n");
 	printf("-o, --out=FILE		write output to FILE instead of stdout\n");
 	printf("-s, --scatter		run scatter read test\n");
+	printf("-w, --scatter-write	run scatter sequential write test\n");
 	printf("    --scatter-order=N 	scatter across 2^N blocks (default:9)\n");
 	printf("    --scatter-span=N 	span each write across N blocks (default:1)\n");
 	printf("-f, --find-fat		analyse first few erase blocks\n");
@@ -605,7 +637,7 @@ static void print_help(const char *name)
 struct arguments {
 	const char *dev;
 	const char *out;
-	bool scatter, interval, program, fat, open_au, align;
+	bool scatter, scatter_write, interval, program, fat, open_au, align;
 	bool random;
 	int count;
 	int blocksize;
@@ -623,6 +655,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 	static const struct option long_options[] = {
 		{ "out", 1, NULL, 'o' },
 		{ "scatter", 0, NULL, 's' },
+		{ "scatter-write", 0, NULL, 'w' },
 		{ "scatter-order", 1, NULL, 'S' },
 		{ "scatter-span", 1, NULL, '$' },
 		{ "align", 0, NULL, 'a' },
@@ -654,7 +687,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 	while (1) {
 		int c;
 
-		c = getopt_long(argc, argv, "o:siafF:Ovrc:b:e:p", long_options, &optind);
+		c = getopt_long(argc, argv, "o:swiafF:Ovrc:b:e:p", long_options, &optind);
 
 		if (c == -1)
 			break;
@@ -666,6 +699,10 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 
 		case 's':
 			args->scatter = 1;
+			break;
+
+		case 'w':
+			args->scatter_write = 1;
 			break;
 
 		case 'S':
@@ -746,7 +783,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 
 	args->dev = argv[optind];
 
-	if (!(args->scatter || args->interval || args->program ||
+	if (!(args->scatter || args->scatter_write || args->interval || args->program ||
 	      args->fat || args->open_au || args->align)) {
 		fprintf(stderr, "%s: need at least one action\n", argv[0]);
 		return -EINVAL;
@@ -792,6 +829,16 @@ int main(int argc, char **argv)
 
 	if (args.scatter) {
 		ret = try_scatter_io(&dev, args.count, args.scatter_order,
+				 args.scatter_span, args.blocksize, output);
+		if (ret < 0) {
+			errno = -ret;
+			perror("try_scatter_io");
+			return ret;
+		}
+	}
+
+	if (args.scatter_write) {
+		ret = try_scatter_io_write(&dev, args.count, args.scatter_order,
 				 args.scatter_span, args.blocksize, output);
 		if (ret < 0) {
 			errno = -ret;
