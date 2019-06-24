@@ -277,7 +277,7 @@ static int try_scatter_io(struct device *dev, int tries, int scatter_order,
 }
 
 static int try_scatter_io_write(struct device *dev, int tries, int scatter_order,
-			int scatter_span, int blocksize, FILE *out)
+			int scatter_span, int blocksize, FILE *out, int scatter_write_delay)
 {
 	int i, j;
 	const int count = 1 << scatter_order;
@@ -297,6 +297,7 @@ static int try_scatter_io_write(struct device *dev, int tries, int scatter_order
 
 			//pos = lfsr(pos, scatter_order);
 			pos++;
+			usleep(scatter_write_delay*1000);
 		}
 	}
 
@@ -617,21 +618,22 @@ static void print_help(const char *name)
 {
 	printf("%s [OPTION]... [DEVICE]\n", name);
 	printf("run tests on DEVICE, pointing to a flash storage medium.\n\n");
-	printf("-o, --out=FILE		write output to FILE instead of stdout\n");
-	printf("-s, --scatter		run scatter read test\n");
-	printf("-w, --scatter-write	run scatter sequential write test\n");
-	printf("    --scatter-order=N 	scatter across 2^N blocks (default:9)\n");
-	printf("    --scatter-span=N 	span each write across N blocks (default:1)\n");
-	printf("-f, --find-fat		analyse first few erase blocks\n");
-	printf("    --fat-nr=N		look through first N erase blocks (default:6)\n");
-	printf("-O, --open-au		find number of open erase blocks\n");
-	printf("    --open-au-nr=N 	try N open erase blocks (default:2)\n");
-	printf("    --offset=N  	start at position N\n");
-	printf("-r, --random		use pseudorandom access with erase block\n");
-	printf("-v, --verbose		increase verbosity of output\n");
-	printf("-c, --count=N		run each test N times (default:8)\n");
-	printf("-b, --blocksize=N 	use a blocksize of N (default:16K)\n");
-	printf("-e, --erasesize=N 	use a eraseblock size of N (default:4M)\n");
+	printf("-o, --out=FILE			write output to FILE instead of stdout\n");
+	printf("-s, --scatter			run scatter read test\n");
+	printf("-w, --scatter-write		run scatter sequential write test\n");
+	printf("    --scatter-write-delay=N	scatter sequential write delay in ms (default:0)\n");
+	printf("    --scatter-order=N 		scatter across 2^N blocks (default:9)\n");
+	printf("    --scatter-span=N 		span each write across N blocks (default:1)\n");
+	printf("-f, --find-fat			analyse first few erase blocks\n");
+	printf("    --fat-nr=N			look through first N erase blocks (default:6)\n");
+	printf("-O, --open-au			find number of open erase blocks\n");
+	printf("    --open-au-nr=N	 	try N open erase blocks (default:2)\n");
+	printf("    --offset=N  		start at position N\n");
+	printf("-r, --random			use pseudorandom access with erase block\n");
+	printf("-v, --verbose			increase verbosity of output\n");
+	printf("-c, --count=N			run each test N times (default:8)\n");
+	printf("-b, --blocksize=N 		use a blocksize of N (default:16K)\n");
+	printf("-e, --erasesize=N 		use a eraseblock size of N (default:4M)\n");
 }
 
 struct arguments {
@@ -643,6 +645,7 @@ struct arguments {
 	int blocksize;
 	int erasesize;
 	unsigned long long offset;
+	int scatter_write_delay;
 	int scatter_order;
 	int scatter_span;
 	int interval_order;
@@ -656,6 +659,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 		{ "out", 1, NULL, 'o' },
 		{ "scatter", 0, NULL, 's' },
 		{ "scatter-write", 0, NULL, 'w' },
+		{ "scatter-write-delay", 1, NULL, 'd' },
 		{ "scatter-order", 1, NULL, 'S' },
 		{ "scatter-span", 1, NULL, '$' },
 		{ "align", 0, NULL, 'a' },
@@ -676,6 +680,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 
 	memset(args, 0, sizeof(*args));
 	args->count = 8;
+	args->scatter_write_delay = 0;
 	args->scatter_order = 9;
 	args->scatter_span = 1;
 	args->blocksize = 16384;
@@ -687,7 +692,7 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 	while (1) {
 		int c;
 
-		c = getopt_long(argc, argv, "o:swiafF:Ovrc:b:e:p", long_options, &optind);
+		c = getopt_long(argc, argv, "o:swdiafF:Ovrc:b:e:p", long_options, &optind);
 
 		if (c == -1)
 			break;
@@ -703,6 +708,10 @@ static int parse_arguments(int argc, char **argv, struct arguments *args)
 
 		case 'w':
 			args->scatter_write = 1;
+			break;
+
+		case 'd':
+			args->scatter_write_delay = atoi(optarg);
 			break;
 
 		case 'S':
@@ -839,7 +848,7 @@ int main(int argc, char **argv)
 
 	if (args.scatter_write) {
 		ret = try_scatter_io_write(&dev, args.count, args.scatter_order,
-				 args.scatter_span, args.blocksize, output);
+				 args.scatter_span, args.blocksize, output, args.scatter_write_delay);
 		if (ret < 0) {
 			errno = -ret;
 			perror("try_scatter_io");
