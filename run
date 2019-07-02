@@ -1,0 +1,28 @@
+#!/bin/bash
+# Create scatter file (if it doesn't exist) and (re)plot images 
+
+card="grey"
+
+order=14
+blocksize=2048
+delay=40
+
+filename="W_"$card"_order"$order"_blocksize"$blocksize"_delay"$delay
+
+
+if test -f "runs/$filename"; then
+	echo "runs/$filename already exists"
+else
+	echo "runs/$filename does not exists >> running flashbench"
+	echo "start: $(date)"
+	sudo ./flashbench -w /dev/sdb --scatter-order=$order --count=1 --blocksize=$blocksize --scatter-write-delay=$delay -o "runs/"$filename
+	echo "end:   $(date)"
+fi
+
+echo "(re)plotting"
+gnuplot -p -e 'set xrange [-10:] ; set yrange [-10:100] ;set terminal png ; set output "runs/'$filename'.png" ; plot "runs/'$filename'"'
+# also create an autoscale_{filename}.png to be able to check if the y range is correct
+gnuplot -p -e 'set terminal png ; set output "runs/'autoscale_$filename'.png" ; plot "runs/'$filename'"'
+eog "runs/"$filename.png &
+
+
